@@ -30,7 +30,7 @@ class Fulltext implements SelectModifierInterface
         $value = $this->getValueFromFulltextSearch($searchCriteria);
 
         if ($value) {
-            $select->reset('where');
+            $this->sanitizeSelect($select);
             $select->where($this->getWhereCondition($value, $select->getConnection()));
         }
     }
@@ -68,10 +68,10 @@ class Fulltext implements SelectModifierInterface
                 self::TABLE_ALIAS . '.title',
                 ['like' => sprintf('%%%s%%', $value)]
             ),
-             $connection->prepareSqlCondition(
-                 self::TABLE_ALIAS . '.id',
-                 ['in' => $this->getSelectByKeyword($value, $connection)]
-             ),
+            $connection->prepareSqlCondition(
+                self::TABLE_ALIAS . '.id',
+                ['in' => $this->getSelectByKeyword($value, $connection)]
+            ),
         ];
 
         return '(' . implode(' ' . Select::SQL_OR . ' ', $conditions) . ')';
@@ -89,5 +89,42 @@ class Fulltext implements SelectModifierInterface
         return $connection->select()
             ->from($connection->getTableName(self::TABLE_ASSET_KEYWORD), ['id'])
             ->where('keyword = ?', $value);
+    }
+
+    /**
+     * Delete fulltext `MATCH(...` condition from select
+     *
+     * @param Select $select
+     * @return void
+     */
+    private function sanitizeSelect(Select $select): void
+    {
+        $sqlAnd = Select::SQL_AND . ' ';
+
+        $conditions = [];
+        foreach ($select->getPart(Select::WHERE) as $condition) {
+            if (strpos($condition, 'MATCH(') !== false) {
+                continue;
+            }
+
+            $conditions[] = strpos($condition, $sqlAnd) !== false ? substr($condition, strlen($sqlAnd)) : $condition;
+        }
+
+        $this->resetWhere($select, $conditions);
+    }
+
+    /**
+     * Set sanitized where conditions
+     *
+     * @param Select $select
+     * @param array $conditions
+     * @return void
+     */
+    private function resetWhere(Select $select, array $conditions): void
+    {
+        $select->reset('where');
+        foreach ($conditions as $condition) {
+            $select->where($condition);
+        }
     }
 }
